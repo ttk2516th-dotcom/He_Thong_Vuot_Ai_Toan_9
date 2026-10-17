@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Trắc nghiệm Toán 9 – Chọn ải luyện tập</title>
     <script src="https://cdn.tailwindcss.com"></script>
+<script src="https://www.gstatic.com/firebasejs/12.4.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/12.4.0/firebase-auth-compat.js"></script>
     <script>
       window.MathJax = { tex: { inlineMath: [['\\(', '\\)'], ['$', '$']], displayMath: [['\\[', '\\]'], ['$$', '$$']] } };
     </script>
@@ -20,19 +22,43 @@
         .rank-gap td { height:24px; border:0; padding:0; }
     </style>
 </head>
-<body class="min-h-screen flex items-center justify-center p-4">
+<body class="min-h-screen flex flex-col items-center justify-center p-4">
+
+<div id="account-bar" class="hidden w-full max-w-2xl flex justify-between items-center mb-4 text-sm gap-3">
+  <span id="account-label" class="break-all"></span><button onclick="logoutGoogle()" class="border rounded-lg px-3 py-2 bg-white shrink-0">Đăng xuất</button>
+</div>
+<section id="auth-screen" class="bg-white p-6 sm:p-8 rounded-xl shadow-lg w-full max-w-md">
+ <h1 class="text-2xl font-bold text-blue-700 mb-3">Vượt ải Toán 9</h1>
+ <p class="text-gray-600 mb-5">Đăng nhập bằng tài khoản Google của em để lưu hồ sơ và thành tích riêng.</p>
+ <button id="google-login" onclick="loginGoogle()" class="w-full bg-blue-600 text-white rounded-lg p-3 font-bold">Đăng nhập bằng Google</button>
+ <p id="auth-status" class="mt-4 text-sm" role="status">Đang kiểm tra đăng nhập…</p>
+ <button id="auth-refresh" onclick="refreshIdentity()" class="hidden underline text-blue-700 mt-3">Kiểm tra lại trạng thái hồ sơ</button>
+ <form id="profile-form" class="hidden mt-5 space-y-3" onsubmit="submitProfile(event)">
+  <label class="block">Họ và tên<input id="profile-name" required maxlength="100" autocomplete="name" class="block w-full border rounded-lg p-2 mt-1"></label>
+  <label class="block">Lớp<input id="profile-class" required maxlength="30" class="block w-full border rounded-lg p-2 mt-1" placeholder="Ví dụ: 9A1"></label>
+  <label class="block">Ngày sinh<input id="profile-dob" required type="date" min="1900-01-01" class="block w-full border rounded-lg p-2 mt-1"></label>
+  <p class="text-xs text-gray-500">Giáo viên xem hồ sơ để xác nhận. Email và ngày sinh không hiển thị trên bảng xếp hạng.</p>
+  <button id="profile-submit" class="w-full bg-blue-600 text-white rounded-lg p-3">Gửi hồ sơ để giáo viên duyệt</button>
+ </form>
+</section>
+<section id="teacher-screen" class="hidden bg-white p-5 sm:p-8 rounded-xl shadow-lg w-full max-w-4xl">
+ <h1 class="text-2xl font-bold text-blue-700">Duyệt hồ sơ học sinh</h1>
+ <p class="text-sm text-gray-600 mt-2">Đối chiếu thông tin học sinh trước khi duyệt. Có thể yêu cầu sửa lại hồ sơ đã duyệt.</p>
+ <div class="flex flex-wrap gap-3 my-4"><input id="profile-search" oninput="renderProfiles()" placeholder="Tìm tên, lớp hoặc email" aria-label="Tìm hồ sơ" class="border p-2 rounded-lg flex-1"><select id="profile-filter" onchange="renderProfiles()" class="border p-2 rounded-lg" aria-label="Lọc hồ sơ"><option value="pending">Chờ duyệt</option><option value="approved">Đã duyệt</option><option value="changes_requested">Cần sửa</option><option value="">Tất cả</option></select><button id="teacher-refresh" onclick="loadProfiles()" class="bg-blue-600 text-white p-2 rounded-lg">Tải lại</button></div>
+ <p id="teacher-status" role="status" class="text-sm mb-4"></p><div id="profiles-list" class="space-y-4"></div>
+</section>
 
     <!-- Screen 1: Login -->
-    <div id="login-screen" class="bg-white p-8 rounded-xl shadow-lg w-full max-w-md">
+    <div id="login-screen" class="hidden bg-white p-8 rounded-xl shadow-lg w-full max-w-md">
         <h1 class="text-2xl font-bold text-center text-blue-600 mb-6">Trắc Nghiệm Toán 9</h1>
         <div class="space-y-4">
             <div>
                 <label class="block text-gray-700 font-medium mb-1">Họ và Tên</label>
-                <input type="text" id="student-name" class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Nguyễn Văn A">
+                <input type="text" id="student-name" readonly class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Nguyễn Văn A">
             </div>
             <div>
                 <label class="block text-gray-700 font-medium mb-1">Lớp</label>
-                <input type="text" id="student-class" class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="9A1">
+                <input type="text" id="student-class" readonly class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="9A1">
             </div>
             <div>
                 <label for="exam-select" class="block text-gray-700 font-medium mb-1">Chọn ải luyện tập</label>
@@ -105,7 +131,7 @@
         <button id="btn-save-retry" onclick="saveCompletedResult()" class="hidden mb-3 w-full border border-blue-600 text-blue-700 rounded-lg py-2">Gửi lại kết quả</button>
         <button id="btn-action" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg transition duration-200"></button>
         <button id="btn-retake-result" onclick="returnHomeForRetake()" disabled class="hidden mt-3 w-full border border-blue-600 text-blue-700 font-bold py-2 px-4 rounded-lg disabled:opacity-50">Về trang chủ &amp; Thi lại</button>
-        <p id="retake-note" class="hidden text-xs text-gray-500 mt-2">Có thể thi lại sau khi kết quả đã lưu. Bảng xếp hạng giữ thành tích tốt nhất theo họ tên, lớp và ải.</p>
+        <p id="retake-note" class="hidden text-xs text-gray-500 mt-2">Có thể thi lại sau khi kết quả đã lưu. Bảng xếp hạng giữ thành tích tốt nhất theo tài khoản Google và ải.</p>
     </div>
 
     <div id="leaderboard-screen" class="hidden bg-white p-4 sm:p-8 rounded-xl shadow-lg w-full max-w-2xl">
@@ -119,7 +145,7 @@
             <tbody id="rank-body"></tbody>
           </table>
         </div>
-        <p class="text-xs text-gray-500 mt-3">Top 5 toàn thể và tối đa 3 vị trí trước, 3 vị trí sau bạn. Mỗi học sinh lấy thành tích tốt nhất theo họ tên, lớp và ải; dòng của bạn được tô xanh. Các dòng trùng chỉ hiện một lần.</p>
+        <p class="text-xs text-gray-500 mt-3">Top 5 toàn thể và tối đa 3 vị trí trước, 3 vị trí sau bạn. Mỗi học sinh lấy thành tích tốt nhất theo tài khoản Google và ải; dòng của bạn được tô xanh. Các dòng trùng chỉ hiện một lần.</p>
         <div class="flex flex-wrap gap-2 mt-5">
           <button id="rank-refresh" onclick="showLeaderboard()" class="bg-blue-600 text-white rounded-lg py-2 px-4">Cập nhật bảng</button>
           <button id="btn-retake-rank" onclick="returnHomeForRetake()" disabled class="border border-blue-600 text-blue-700 rounded-lg py-2 px-4 disabled:opacity-50">Về trang chủ &amp; Thi lại</button>
@@ -176,8 +202,9 @@
 
         window.startQuiz = async function() {
             if (startingQuiz) return;
-            student.name = document.getElementById('student-name').value.trim();
-            student.class = document.getElementById('student-class').value.trim();
+            if(!authUser||!accountProfile||accountProfile.status!=='approved'){alert('Hồ sơ chưa được duyệt.');return;}
+            student.name = accountProfile.name;
+            student.class = accountProfile.className;
             
             if (!student.name || !student.class) {
                 alert("Vui lòng nhập đầy đủ Họ Tên và Lớp!"); 
@@ -252,6 +279,7 @@
             // 1. Tách đáp án khỏi tiền tố A, B, C, D gốc và lưu lại vị trí đúng
             let optionsObj = q.options.map((opt, idx) => ({
                 text: opt.replace(/^[A-D]\.\s*/, ''), 
+                original: idx,
                 isCorrect: (idx === q.correct)
             }));
 
@@ -260,6 +288,8 @@
 
             // 3. Cập nhật lại vị trí đáp án đúng sau khi trộn
             q.currentCorrectIndex = optionsObj.findIndex(o => o.isCorrect);
+            q.optionOrder = optionsObj.map(o=>o.original);
+            q.selectedOriginal = -1;
 
             // 4. In ra giao diện và gắn lại A, B, C, D theo thứ tự mới
             optionsObj.forEach((opt, idx) => {
@@ -294,6 +324,7 @@
             clearInterval(timerInterval);
             
             // Kiểm tra tính đúng/sai dựa trên vị trí mới đã trộn
+            q.selectedOriginal = q.optionOrder[selectedIndex];
             const isCorrect = selectedIndex === q.currentCorrectIndex;
             
             if (isCorrect) {
@@ -396,7 +427,9 @@
                 btnAction.onclick = showLeaderboard;
                 if (!completedPayload) {
                     completedPayload = {
-                        schema: 3,
+                        schema: 4,
+                        uid: authUser.uid,
+                        answers: currentQuestions.map(q=>({id:q.id,choice:q.selectedOriginal})),
                         examId: selectedExam.id,
                         examName: selectedExam.name,
                         attemptId: (window.crypto && typeof window.crypto.randomUUID === 'function') ? window.crypto.randomUUID() : 'quiz_' + Date.now() + '_' + Math.random().toString(36).slice(2),
@@ -409,7 +442,7 @@
                         correct: 12,
                         total: 12
                     };
-                    try { localStorage.setItem('vuot_ai_toan9_official_pending_v1', JSON.stringify(completedPayload)); } catch (_) {}
+                    try { localStorage.setItem(pendingKey(), JSON.stringify(completedPayload)); } catch (_) {}
                 }
                 document.getElementById('btn-retake-result').classList.remove('hidden');
                 document.getElementById('retake-note').classList.remove('hidden');
@@ -425,35 +458,133 @@
             if (data.examId !== examId) throw new Error('Bảng xếp hạng chưa đúng ải. Vui lòng thử lại.');
             return data;
         }
-        function apiRequest(action, params = {}) {
-            return new Promise((resolve, reject) => {
-                const callback = 'quizCb_' + Date.now() + '_' + Math.random().toString(36).slice(2);
-                const script = document.createElement('script');
-                let done = false;
-                const cleanup = () => {
-                    clearTimeout(timeout);
-                    script.remove();
-                    // A late response after timeout must not call a deleted function.
-                    window[callback] = () => {};
-                    setTimeout(() => { delete window[callback]; }, 60000);
-                };
-                const finish = (error, data) => {
-                    if (done) return;
-                    done = true; cleanup();
-                    error ? reject(error) : resolve(data);
-                };
-                const timeout = setTimeout(() => finish(new Error('Kết nối quá thời gian. Hãy thử lại.')), 12000);
-                window[callback] = data => data && data.ok ? finish(null, data) : finish(new Error(data && data.error || 'Chưa đọc được bảng xếp hạng.'));
-                script.onerror = () => finish(new Error('Không kết nối được bảng xếp hạng.'));
-                const url = new URL(GOOGLE_SCRIPT_URL);
-                url.searchParams.set('action', action);
-                Object.entries(params).forEach(([key, value]) => url.searchParams.set(key, value));
-                url.searchParams.set('callback', callback);
-                url.searchParams.set('_', Date.now());
-                script.src = url.toString();
-                document.head.appendChild(script);
-            });
+        let authUser=null, accountProfile=null, teacherProfiles=[], authVersion=0, authBusy=false;
+        const firebaseConfig={apiKey:'AIzaSyDoaPGrDZG8UeEiOTQpBu98eoyPsR6KoDU',authDomain:'he-thong-vuot-ai-toan-9.firebaseapp.com',projectId:'he-thong-vuot-ai-toan-9',storageBucket:'he-thong-vuot-ai-toan-9.firebasestorage.app',messagingSenderId:'711701248089',appId:'1:711701248089:web:151863565bc67e37c85948'};
+        let firebaseAuth=null;
+        const pendingKey=()=> 'vuot_ai_auth_v1_'+(authUser?authUser.uid:'signed-out');
+        let bridgePromise=null,bridgePort=null;
+        const pendingRequests=new Map();
+        function connectBridge(){
+          if(bridgePromise)return bridgePromise;
+          bridgePromise=new Promise((resolve,reject)=>{
+            const channel=Array.from(crypto.getRandomValues(new Uint8Array(32)),x=>x.toString(16).padStart(2,'0')).join('');
+            const frame=document.createElement('iframe');frame.hidden=true;frame.title='Kết nối máy chủ';
+            let accepted=false;
+            const timeout=setTimeout(()=>{window.removeEventListener('message',listen);frame.remove();bridgePromise=null;reject(new Error('Không kết nối được Apps Script. Hãy kiểm tra đã triển khai phiên bản mới và quyền truy cập “Bất kỳ ai”.'));},30000);
+            function listen(e){
+              if(accepted||!e.data||e.data.type!=='quiz-bridge-ready'||e.data.channel!==channel||!/^https:\/\/[a-z0-9-]+\.googleusercontent\.com$/.test(e.origin))return;
+              accepted=true;
+              const pair=new MessageChannel();bridgePort=pair.port1;
+              bridgePort.onmessage=event=>{
+                const m=event.data;
+                if(m&&m.type==='connected'){clearTimeout(timeout);window.removeEventListener('message',listen);resolve(bridgePort);return;}
+                const request=m&&pendingRequests.get(m.id);if(!request)return;
+                clearTimeout(request.timeout);pendingRequests.delete(m.id);
+                m.data&&m.data.ok?request.resolve(m.data):request.reject(new Error(m.data&&m.data.error||'Chưa đọc được dữ liệu.'));
+              };
+              bridgePort.start();e.source.postMessage({type:'quiz-connect',channel},e.origin,[pair.port2]);
+            }
+            window.addEventListener('message',listen);
+            const url=new URL(GOOGLE_SCRIPT_URL);url.searchParams.set('action','bridge');url.searchParams.set('channel',channel);frame.src=url.href;document.body.appendChild(frame);
+          });return bridgePromise;
         }
+        async function apiRequest(action,params={}){
+          const user=authUser;if(!user)throw new Error('Vui lòng đăng nhập Google.');
+          const port=await connectBridge(),token=await user.getIdToken();
+          if(authUser!==user)throw new Error('Tài khoản đã thay đổi. Hãy tải lại trang.');
+          return new Promise((resolve,reject)=>{
+            const id=crypto.randomUUID();
+            const timeout=setTimeout(()=>{pendingRequests.delete(id);reject(new Error('Máy chủ phản hồi chậm. Hãy thử lại.'));},45000);
+            pendingRequests.set(id,{resolve,reject,timeout});port.postMessage({id,action,params,token});
+          });
+        }
+        function authMessage(text){document.getElementById('auth-status').textContent=text;}
+        async function loginGoogle(){
+          if(!firebaseAuth){authMessage('Chưa tải được đăng nhập Google. Kiểm tra Internet rồi tải lại trang.');return;}
+          const button=document.getElementById('google-login');button.disabled=true;
+          try{const provider=new firebase.auth.GoogleAuthProvider();provider.setCustomParameters({prompt:'select_account'});await firebaseAuth.signInWithPopup(provider);}
+          catch(error){authMessage(error.code==='auth/popup-closed-by-user'?'Cửa sổ đăng nhập đã đóng. Bấm đăng nhập để thử lại.':error.code==='auth/unauthorized-domain'?'Tên miền website chưa được thêm vào Firebase → Authentication → Settings → Authorized domains.':'Không đăng nhập được ('+(error.code||error.message)+'). Hãy mở trang bằng Chrome hoặc Safari, cho phép cửa sổ bật lên rồi thử lại.');}
+          finally{button.disabled=false;}
+        }
+        async function logoutGoogle(){
+          if(document.getElementById('quiz-screen').classList.contains('hidden')===false&&!confirm('Đăng xuất sẽ kết thúc lượt đang làm. Em có muốn tiếp tục?'))return;
+          await firebaseAuth.signOut();location.reload();
+        }
+        async function refreshIdentity(){
+          if(!authUser||authBusy)return;authBusy=true;const version=authVersion;
+          document.getElementById('auth-refresh').disabled=true;authMessage('Đang kiểm tra hồ sơ…');
+          try{
+            const data=await apiRequest('me');if(version!==authVersion)return;
+            accountProfile=data.profile;
+            document.getElementById('account-label').textContent=(data.teacher?'Giáo viên · ':accountProfile?accountProfile.name+' · ':'')+data.email;
+            document.getElementById('profile-form').classList.add('hidden');
+            if(data.teacher){document.getElementById('auth-screen').classList.add('hidden');document.getElementById('teacher-screen').classList.remove('hidden');await loadProfiles();return;}
+            if(accountProfile&&accountProfile.status==='approved'){
+              document.getElementById('student-name').value=accountProfile.name;document.getElementById('student-class').value=accountProfile.className;
+              document.getElementById('auth-screen').classList.add('hidden');document.getElementById('login-screen').classList.remove('hidden');
+              restorePending();await loadExamCatalog();return;
+            }
+            if(accountProfile&&accountProfile.status==='pending'){
+              authMessage('Hồ sơ '+accountProfile.name+' · '+accountProfile.className+' đang chờ giáo viên duyệt. Sau khi được duyệt, bấm “Kiểm tra lại trạng thái hồ sơ”.');
+            }else{
+              authMessage(accountProfile?'Giáo viên yêu cầu sửa: '+accountProfile.note:'Điền hồ sơ để giáo viên xác nhận trước khi làm bài.');
+              document.getElementById('profile-form').classList.remove('hidden');
+              document.getElementById('profile-name').value=accountProfile?accountProfile.name:authUser.displayName||'';
+              document.getElementById('profile-class').value=accountProfile?accountProfile.className:'';
+              document.getElementById('profile-dob').value=accountProfile?accountProfile.dob:'';
+            }
+          }catch(error){authMessage(error.message);}finally{authBusy=false;document.getElementById('auth-refresh').disabled=false;}
+        }
+        async function submitProfile(event){
+          event.preventDefault();const button=document.getElementById('profile-submit');button.disabled=true;authMessage('Đang gửi hồ sơ…');
+          try{await apiRequest('saveProfile',{name:document.getElementById('profile-name').value,className:document.getElementById('profile-class').value,dob:document.getElementById('profile-dob').value});await refreshIdentity();}
+          catch(error){authMessage(error.message);}finally{button.disabled=false;}
+        }
+        async function loadProfiles(){
+          const button=document.getElementById('teacher-refresh');button.disabled=true;
+          document.getElementById('teacher-status').textContent='Đang tải hồ sơ…';
+          try{const data=await apiRequest('listProfiles');teacherProfiles=data.profiles;renderProfiles();}
+          catch(error){document.getElementById('teacher-status').textContent=error.message;}finally{button.disabled=false;}
+        }
+        function renderProfiles(){
+          const list=document.getElementById('profiles-list');list.replaceChildren();
+          const query=document.getElementById('profile-search').value.trim().toLocaleLowerCase('vi'),filter=document.getElementById('profile-filter').value;
+          const rows=teacherProfiles.filter(p=>(!filter||p.status===filter)&&[p.name,p.className,p.email].join(' ').toLocaleLowerCase('vi').includes(query));
+          document.getElementById('teacher-status').textContent=rows.length+' hồ sơ · '+teacherProfiles.filter(p=>p.status==='pending').length+' đang chờ duyệt';
+          for(const p of rows){
+            const card=document.createElement('article');card.className='border rounded-xl p-4';
+            const heading=document.createElement('h2');heading.className='font-bold text-lg';heading.textContent=p.name+' · '+p.className;card.appendChild(heading);
+            const info=document.createElement('p');info.className='text-sm break-all mt-2';info.textContent=p.email+' · Ngày sinh: '+p.dob.split('-').reverse().join('/')+' · '+({pending:'Chờ duyệt',approved:'Đã duyệt',changes_requested:'Cần sửa'}[p.status]||p.status);card.appendChild(info);
+            const note=document.createElement('textarea');note.className='w-full border rounded-lg p-2 mt-3';note.placeholder='Ghi chú / nội dung cần sửa';note.setAttribute('aria-label','Ghi chú cho '+p.name);note.maxLength=500;note.value=p.note||'';card.appendChild(note);
+            const actions=document.createElement('div');actions.className='flex gap-3 mt-2';
+            for(const [status,label] of [['approved','Duyệt hồ sơ'],['changes_requested','Yêu cầu sửa']]){
+              if(status==='approved'&&p.status==='approved')continue;
+              const button=document.createElement('button');button.className='rounded-lg px-3 py-2 '+(status==='approved'?'bg-green-700 text-white':'bg-orange-100 text-orange-900');button.textContent=label;
+              button.onclick=async()=>{
+                if(status==='changes_requested'&&!note.value.trim()){alert('Hãy ghi nội dung cần sửa.');return;}
+                if(!confirm(label+' cho '+p.name+' ('+p.className+')?'))return;
+                actions.querySelectorAll('button').forEach(b=>b.disabled=true);
+                try{await apiRequest('reviewProfile',{uid:p.uid,revision:p.revision,status,note:note.value});await loadProfiles();}
+                catch(error){document.getElementById('teacher-status').textContent=error.message;actions.querySelectorAll('button').forEach(b=>b.disabled=false);}
+              };actions.appendChild(button);
+            }card.appendChild(actions);list.appendChild(card);
+          }
+        }
+        function initializeGoogle(){
+          if(!window.firebase){authMessage('Chưa tải được Firebase. Kiểm tra kết nối và tải lại trang.');return;}
+          firebase.initializeApp(firebaseConfig);firebaseAuth=firebase.auth();firebaseAuth.languageCode='vi';
+          firebaseAuth.onAuthStateChanged(async user=>{
+            if(authUser && (!user || user.uid!==authUser.uid)){location.reload();return;}
+            authVersion++;authUser=user;clearInterval(timerInterval);
+            ['login-screen','quiz-screen','result-screen','leaderboard-screen','teacher-screen','profile-form'].forEach(id=>document.getElementById(id).classList.add('hidden'));
+            document.getElementById('auth-screen').classList.remove('hidden');
+            document.getElementById('account-bar').classList.toggle('hidden',!user);
+            document.getElementById('google-login').classList.toggle('hidden',!!user);
+            document.getElementById('auth-refresh').classList.toggle('hidden',!user);
+            if(user)await refreshIdentity();else authMessage('Đăng nhập để bắt đầu.');
+          });
+        }
+
         function saveCompletedResult() {
             if (!completedPayload) return Promise.resolve(false);
             if (resultSaved) return Promise.resolve(true);
@@ -464,30 +595,20 @@
             document.getElementById('btn-save-retry').classList.add('hidden');
             savingPromise = (async () => {
                 try {
-                    const controller = new AbortController();
-                    const timer = setTimeout(() => controller.abort(), 12000);
-                    try {
-                        await fetch(GOOGLE_SCRIPT_URL, {
-                            method: 'POST', mode: 'no-cors', signal: controller.signal,
-                            headers: {'Content-Type': 'text/plain;charset=utf-8'},
-                            body: JSON.stringify(completedPayload)
-                        });
-                    } catch (_) {
-                        // The server may have saved despite a network timeout. Confirm by ID.
-                    } finally { clearTimeout(timer); }
+                    await apiRequest('saveResult', completedPayload);
                     for (let check = 0; check < 4; check++) {
                         const data = await leaderboardRequest();
                         if (data.saved) {
                             resultSaved = true;
                             status.textContent = 'Đã lưu kết quả vào bảng của giáo viên.';
-                            try { localStorage.removeItem('vuot_ai_toan9_official_pending_v1'); } catch (_) {}
+                            try { localStorage.removeItem(pendingKey()); } catch (_) {}
                             return true;
                         }
                         if (check < 3) await new Promise(resolve => setTimeout(resolve, 1800));
                     }
                     throw new Error('Chưa xác nhận được kết quả đã lưu.');
                 } catch (error) {
-                    status.textContent = 'Chưa lưu được kết quả hoặc chưa nhận được xác nhận. Bấm “Gửi lại kết quả”.';
+                    status.textContent = error.message + ' Bấm “Gửi lại kết quả” để thử lại.';
                     document.getElementById('btn-save-retry').classList.remove('hidden');
                     return false;
                 } finally { savingPromise = null; updateRetakeButtons(); }
@@ -553,7 +674,7 @@
             const className = completedPayload.className;
             const previousExamId = completedPayload.examId || 'DE01';
             clearInterval(timerInterval);
-            try { localStorage.removeItem('vuot_ai_toan9_official_pending_v1'); } catch (_) {}
+            try { localStorage.removeItem(pendingKey()); } catch (_) {}
             student = {name: '', class: ''};
             selectedExam = null;
             questionsData = [];
@@ -634,12 +755,15 @@
             }
         }
 
-        // Recover an unsent completed result after an accidental refresh.
+        function restorePending(){
+        // Recover only results belonging to the currently signed-in account.
         try {
-            const pending = JSON.parse(localStorage.getItem('vuot_ai_toan9_official_pending_v1') || 'null');
-            if (pending && [2, 3].includes(pending.schema) && pending.correct === 12 && pending.total === 12 && Number.isInteger(pending.durationSeconds) && pending.durationSeconds > 0 && Number.isInteger(pending.rounds) && pending.rounds > 0) {
+            const pending = JSON.parse(localStorage.getItem(pendingKey()) || 'null');
+            if (pending && pending.schema === 4 && authUser && pending.uid === authUser.uid && pending.correct === 12 && pending.total === 12 && Number.isInteger(pending.durationSeconds) && pending.durationSeconds > 0 && Number.isInteger(pending.rounds) && pending.rounds > 0) {
                 pending.examId = pending.examId || 'DE01';
                 pending.examName = pending.examName || 'Ải 01 – Ôn tập giữa kỳ I';
+                pending.name = accountProfile.name;
+                pending.className = accountProfile.className;
                 completedPayload = pending;
                 document.getElementById('result-exam-name').textContent = pending.examName;
                 document.getElementById('login-screen').classList.add('hidden');
@@ -665,7 +789,8 @@
             }
         } catch (_) {}
 
-        loadExamCatalog();
+        }
+        initializeGoogle();
     </script>
 </body>
 </html>
