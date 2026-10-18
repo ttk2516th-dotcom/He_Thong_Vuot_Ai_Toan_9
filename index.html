@@ -472,7 +472,7 @@
             let accepted=false;
             const timeout=setTimeout(()=>{window.removeEventListener('message',listen);frame.remove();bridgePromise=null;reject(new Error('Không kết nối được Apps Script. Hãy kiểm tra đã triển khai phiên bản mới và quyền truy cập “Bất kỳ ai”.'));},30000);
             function listen(e){
-              if(accepted||!e.data||e.data.type!=='quiz-bridge-ready'||e.data.channel!==channel||!/^https:\/\/[a-z0-9-]+\.googleusercontent\.com$/.test(e.origin))return;
+              if(accepted||!e.data||e.data.type!=='quiz-bridge-ready'||e.data.channel!==channel||!(e.origin==='https://script.google.com'||/^https:\/\/(?:[a-z0-9-]+\.)*googleusercontent\.com$/.test(e.origin)))return;
               accepted=true;
               const pair=new MessageChannel();bridgePort=pair.port1;
               bridgePort.onmessage=event=>{
