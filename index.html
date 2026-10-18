@@ -121,7 +121,7 @@
         </div>
         
         <div id="result-stats" class="hidden bg-gray-100 p-4 rounded-lg mb-6 text-left space-y-2">
-            <p class="text-sm text-gray-600"><strong>Số vòng đã thử:</strong> <span id="result-retries"></span></p>
+            <p class="text-sm text-gray-600"><strong>Số vòng trong lượt thi này:</strong> <span id="result-retries"></span></p>
             <p class="text-sm text-gray-600"><strong>Thời gian bắt đầu làm bài:</strong> <span id="result-start"></span></p>
             <p class="text-sm text-gray-600"><strong>Thời gian kết thúc làm bài:</strong> <span id="result-finish"></span></p>
             <p class="text-sm text-gray-600 hidden" id="result-end-container"><strong>Thời lượng vòng đạt 12/12:</strong> <span id="result-end"></span></p>
@@ -141,11 +141,11 @@
         <p id="rank-status" class="text-sm mb-4" role="status" aria-live="polite"></p>
         <div style="overflow-x:auto">
           <table id="rank-table" class="rank-table hidden">
-            <thead><tr><th>Hạng</th><th>Họ và tên</th><th>Lớp</th><th>Thời lượng đạt 12/12</th><th>Số vòng đã thử</th></tr></thead>
+            <thead><tr><th>Hạng</th><th>Họ và tên</th><th>Lớp</th><th>Thời lượng đạt 12/12</th><th>Tổng số vòng đã thử</th></tr></thead>
             <tbody id="rank-body"></tbody>
           </table>
         </div>
-        <p class="text-xs text-gray-500 mt-3">Top 5 toàn thể và tối đa 3 vị trí trước, 3 vị trí sau bạn. Mỗi học sinh lấy thành tích tốt nhất theo tài khoản Google và ải; dòng của bạn được tô xanh. Các dòng trùng chỉ hiện một lần.</p>
+        <p class="text-xs text-gray-500 mt-3">Số vòng được cộng dồn mỗi khi bắt đầu làm một vòng mới, dù vòng đó đạt 12/12 hay chưa; tính riêng theo tài khoản và ải. Bảng hiển thị thành tích thời gian tốt nhất. Top 5 toàn thể và tối đa 3 vị trí trước, 3 vị trí sau bạn.</p>
         <div class="flex flex-wrap gap-2 mt-5">
           <button id="rank-refresh" onclick="showLeaderboard()" class="bg-blue-600 text-white rounded-lg py-2 px-4">Cập nhật bảng</button>
           <button id="btn-retake-rank" onclick="returnHomeForRetake()" disabled class="border border-blue-600 text-blue-700 rounded-lg py-2 px-4 disabled:opacity-50">Về trang chủ &amp; Thi lại</button>
@@ -162,10 +162,13 @@
         let examCatalog = [];
         let catalogLoading = false;
         let startingQuiz = false;
+        let startingRound = false;
 
         // Trạng thái theo dõi chung
         let student = { name: "", class: "" };
         let startedAtISO = null;
+        let activeSessionId = null;
+        let pendingRoundId = null;
         let completedPayload = null;
         let resultSaved = false;
         let savingPromise = null;
@@ -235,21 +238,61 @@
                 startedAtISO = new Date().toISOString();
             } 
 
-            document.getElementById('login-screen').classList.add('hidden');
-            document.getElementById('result-screen').classList.add('hidden');
-            document.getElementById('quiz-screen').classList.remove('hidden');
-            document.getElementById('student-info-display').textContent = `${student.name} - ${student.class}`;
-
-            startRound();
+            activeSessionId = createRoundToken();
+            await startRound();
         };
 
-        function startRound() {
+        function createRoundToken() {
+            return 'r_' + ((window.crypto && typeof window.crypto.randomUUID === 'function')
+                ? window.crypto.randomUUID()
+                : Date.now() + '_' + Math.random().toString(36).slice(2) + '_' + Math.random().toString(36).slice(2));
+        }
+
+        async function startRound() {
+            if (startingRound) return false;
+            startingRound = true;
+            const status = document.getElementById('catalog-status');
+            status.textContent = 'Đang ghi nhận vòng làm bài…';
+            const restartButton = document.getElementById('btn-restart-round');
+            const actionButton = document.getElementById('btn-action');
+            restartButton.disabled = true;
+            actionButton.disabled = true;
+            if (!pendingRoundId) pendingRoundId = createRoundToken();
+            try {
+                await apiRequest('recordRoundStart', {
+                    examId: selectedExam.id,
+                    roundId: pendingRoundId,
+                    sessionId: activeSessionId
+                });
+            } catch (error) {
+                const message = 'Chưa ghi nhận được vòng này: ' + error.message + ' Hãy thử lại khi mạng ổn định.';
+                if (!document.getElementById('result-screen').classList.contains('hidden')) {
+                    const saveStatus = document.getElementById('save-status');
+                    saveStatus.textContent = message;
+                    saveStatus.classList.remove('hidden');
+                } else if (!document.getElementById('quiz-screen').classList.contains('hidden')) {
+                    document.getElementById('feedback-explanation').textContent = message;
+                    document.getElementById('feedback-container').classList.remove('hidden');
+                } else status.textContent = message;
+                restartButton.disabled = false;
+                restartButton.classList.remove('hidden');
+                actionButton.disabled = false;
+                startingRound = false;
+                return false;
+            }
+            pendingRoundId = null;
+            startingRound = false;
+            status.textContent = '';
             clearInterval(timerInterval);
             document.getElementById('result-screen').classList.add('hidden');
             document.getElementById('result-stats').classList.add('hidden');
             document.getElementById('save-status').classList.add('hidden');
             document.getElementById('btn-save-retry').classList.add('hidden');
             document.getElementById('quiz-screen').classList.remove('hidden');
+            document.getElementById('login-screen').classList.add('hidden');
+            document.getElementById('student-info-display').textContent = `${student.name} - ${student.class}`;
+            restartButton.disabled = false;
+            actionButton.disabled = false;
             roundStartedAt = Date.now();
             roundFinishedAt = null;
             currentQuestions = shuffle([...questionsData]);
@@ -257,6 +300,7 @@
             results = { correct: 0, wrong: 0 };
             loadQuestion();
             window.scrollTo(0, 0);
+            return true;
         }
 
         function loadQuestion() {
@@ -370,7 +414,7 @@
             if (!hasAnswered || restartButton.classList.contains('hidden')) return;
             restartButton.classList.add('hidden');
             retryCount++;
-            startRound();
+            startRound().then(started => { if (!started) retryCount--; });
         };
 
         window.nextQuestion = function() {
@@ -409,7 +453,7 @@
                 btnAction.textContent = "Làm lại vòng nữa";
                 btnAction.onclick = () => {
                     retryCount++;
-                    startRound();
+                    startRound().then(started => { if (!started) retryCount--; });
                 };
             } else {
                 // ĐẠT 12/12
@@ -427,8 +471,9 @@
                 btnAction.onclick = showLeaderboard;
                 if (!completedPayload) {
                     completedPayload = {
-                        schema: 4,
+                        schema: 5,
                         uid: authUser.uid,
+                        sessionId: activeSessionId,
                         answers: currentQuestions.map(q=>({id:q.id,choice:q.selectedOriginal})),
                         examId: selectedExam.id,
                         examName: selectedExam.name,
@@ -472,7 +517,7 @@
             let accepted=false;
             const timeout=setTimeout(()=>{window.removeEventListener('message',listen);frame.remove();bridgePromise=null;reject(new Error('Không kết nối được Apps Script. Hãy kiểm tra đã triển khai phiên bản mới và quyền truy cập “Bất kỳ ai”.'));},30000);
             function listen(e){
-              if(accepted||!e.data||e.data.type!=='quiz-bridge-ready'||e.data.channel!==channel)return;
+              if(accepted||!e.data||e.data.type!=='quiz-bridge-ready'||e.data.channel!==channel||!(e.origin==='https://script.google.com'||/^https:\/\/(?:[a-z0-9-]+\.)*googleusercontent\.com$/.test(e.origin)))return;
               accepted=true;
               const pair=new MessageChannel();bridgePort=pair.port1;
               bridgePort.onmessage=event=>{
@@ -482,7 +527,7 @@
                 clearTimeout(request.timeout);pendingRequests.delete(m.id);
                 m.data&&m.data.ok?request.resolve(m.data):request.reject(new Error(m.data&&m.data.error||'Chưa đọc được dữ liệu.'));
               };
-              bridgePort.start();e.source.postMessage({type:'quiz-connect',channel},'*',[pair.port2]);
+              bridgePort.start();e.source.postMessage({type:'quiz-connect',channel},e.origin,[pair.port2]);
             }
             window.addEventListener('message',listen);
             const url=new URL(GOOGLE_SCRIPT_URL);url.searchParams.set('action','bridge');url.searchParams.set('channel',channel);frame.src=url.href;document.body.appendChild(frame);
@@ -679,6 +724,8 @@
             selectedExam = null;
             questionsData = [];
             startedAtISO = null;
+            activeSessionId = null;
+            pendingRoundId = null;
             completedPayload = null;
             resultSaved = false;
             savingPromise = null;
@@ -759,7 +806,7 @@
         // Recover only results belonging to the currently signed-in account.
         try {
             const pending = JSON.parse(localStorage.getItem(pendingKey()) || 'null');
-            if (pending && pending.schema === 4 && authUser && pending.uid === authUser.uid && pending.correct === 12 && pending.total === 12 && Number.isInteger(pending.durationSeconds) && pending.durationSeconds > 0 && Number.isInteger(pending.rounds) && pending.rounds > 0) {
+            if (pending && [4, 5].includes(pending.schema) && authUser && pending.uid === authUser.uid && pending.correct === 12 && pending.total === 12 && Number.isInteger(pending.durationSeconds) && pending.durationSeconds > 0 && Number.isInteger(pending.rounds) && pending.rounds > 0) {
                 pending.examId = pending.examId || 'DE01';
                 pending.examName = pending.examName || 'Ải 01 – Ôn tập giữa kỳ I';
                 pending.name = accountProfile.name;
