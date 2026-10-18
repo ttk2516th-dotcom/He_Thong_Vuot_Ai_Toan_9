@@ -472,7 +472,7 @@
             let accepted=false;
             const timeout=setTimeout(()=>{window.removeEventListener('message',listen);frame.remove();bridgePromise=null;reject(new Error('Không kết nối được Apps Script. Hãy kiểm tra đã triển khai phiên bản mới và quyền truy cập “Bất kỳ ai”.'));},30000);
             function listen(e){
-              if(accepted||!e.data||e.data.type!=='quiz-bridge-ready'||e.data.channel!==channel||!(e.source===frame.contentWindow||e.origin==='https://script.google.com'||/^https:\/\/(?:[a-z0-9-]+\.)*googleusercontent\.com$/.test(e.origin)))return;
+              if(accepted||!e.data||e.data.type!=='quiz-bridge-ready'||e.data.channel!==channel)return;
               accepted=true;
               const pair=new MessageChannel();bridgePort=pair.port1;
               bridgePort.onmessage=event=>{
@@ -482,7 +482,7 @@
                 clearTimeout(request.timeout);pendingRequests.delete(m.id);
                 m.data&&m.data.ok?request.resolve(m.data):request.reject(new Error(m.data&&m.data.error||'Chưa đọc được dữ liệu.'));
               };
-              bridgePort.start();e.source.postMessage({type:'quiz-connect',channel},e.origin,[pair.port2]);
+              bridgePort.start();e.source.postMessage({type:'quiz-connect',channel},'*',[pair.port2]);
             }
             window.addEventListener('message',listen);
             const url=new URL(GOOGLE_SCRIPT_URL);url.searchParams.set('action','bridge');url.searchParams.set('channel',channel);frame.src=url.href;document.body.appendChild(frame);
